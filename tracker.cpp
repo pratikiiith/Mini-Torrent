@@ -44,11 +44,15 @@ using namespace std;
 
 unordered_map<string,string> logindetails; 			// username // pwd
 unordered_map<int,bool> online;					// username and peerportno
+unordered_map<int,string> portandip;
 unordered_map<int,vector<pair<int,int>>> pendingrequest;		// ownerportno and pendingrequest vector(containing peerportno)
 unordered_map<string,vector<int>> groupmembers;     // gid and groupmembers including owner (id == peerportno) [0]POS==owner
 unordered_map<string,vector<string>> filegroupdetails; //sha -> gid,gid
 unordered_map<string,vector<int>> filesharingdetails; // sha->size,port,port...
 char ch='\n';
+string trackerpath;
+int number;
+int countt=1;
 
 struct trackerdetails{
 	string ip;
@@ -74,11 +78,12 @@ bool storelogindetails(string key,string value){
 	// logindetails[key].second = true;
 }
 
-bool checkdetails(string key,string value,int portno)
+bool checkdetails(string key,string value,int portno,string ip)
 {
 	if(logindetails.find(key) != logindetails.end()){
 		if(logindetails[key] == value){
 			online[portno]= true;
+			portandip[portno] = ip;
 			return true;
 		}
 	}
@@ -186,6 +191,11 @@ void startcopyfrombackupfile()
 
 }
 
+void getallfiles()
+{
+
+}
+
 void *handleall(void *fd)
 {
 	int sock = *(int *)fd;
@@ -208,9 +218,28 @@ void *handleall(void *fd)
 		int tempnum;
 
 		if(commandno == 20){
-				// cout << "Reached" << endl;
 			startcopyfrombackupfile();
+		}
 
+		if(commandno == 21){
+
+				memset(buffer,'\0',1024);		
+				string path = "backup" + to_string(countt) + ".txt";
+				string cc= "ok";
+				send(sock,cc.c_str(),cc.size(),0);
+				FILE *fp = fopen(path.c_str(),"wb");
+				char Buf [1] ; 
+				// int file_size;
+				int n;
+				// recv(sock, &file_size, sizeof(file_size), 0); 
+				while ( ( n = recv(sock,Buf,1, 0)) > 0){
+					fwrite (Buf , sizeof (char), n, fp);
+					cout << Buf;
+					memset ( Buf , '\0', 1);
+					// file_size = file_size - n;
+				} 
+				fclose(fp);
+				countt++;
 		}
 
 		if(commandno==1){/////////////////////////////////////////////////////////////create user
@@ -228,7 +257,9 @@ void *handleall(void *fd)
 				ss >> loginport; // username
 				ss >> loginpwd; // pwd
 				ss >> tempnum; //peerportno
-				if(checkdetails(loginport,loginpwd,tempnum))
+				string ip;
+				ss >> ip;
+				if(checkdetails(loginport,loginpwd,tempnum,ip))
 				{
 
 					order="Logged in Successfully";
@@ -378,23 +409,25 @@ void *handleall(void *fd)
 					} 
 				}	
 			}
+
 			if(member){ /////////////////////////add details to file gid...portno
 				bool f= false;
 				for(int i=0;i<filegroupdetails[temp].size();i++){
 					if(filegroupdetails[temp][i] == gid) f = true;
-				}
-				
-				if(!f) filegroupdetails[temp].push_back(gid); /// sha->gid
+				}				
+					if(!f) filegroupdetails[temp].push_back(gid); /// sha->gid
 
-				if(filesharingdetails.find(temp) == filesharingdetails.end()) filesharingdetails[temp].push_back(size);
+					if(filesharingdetails.find(temp) == filesharingdetails.end()) filesharingdetails[temp].push_back(size);
 				
-				filesharingdetails[temp].push_back(tempnum);  /// sha->[p1 ,p2 ,...]
-				order = "File uploaded";
+					filesharingdetails[temp].push_back(tempnum);  /// sha->[p1 ,p2 ,...]
+					order = "File uploaded";
+			}	
+			else{
+				order = "Client is not a member of Group";
 			}
-				else{
-					order = "Client is not a member of Group";
-				}
-				send(sock,order.c_str(),order.size(),0);
+			
+			send(sock,order.c_str(),order.size(),0);
+			
 			}
 		
 			else if(commandno == 10){/////////////////////////////////////////////list files
@@ -417,18 +450,39 @@ void *handleall(void *fd)
 				send(sock,order.c_str(),order.size(),0);
 			}
 
-			else if(commandno == 11){
+			else if(commandno == 11){ /////////////////////////////////////////////////download
 				// command = "11"+ xx + " " + gid + " " + to_string(peerportno) + " " + filename + " " + path;
 				string filename;
 				ss >> temp;
 				ss >> temp; // gid
-				ss >> tempnum; //portno
+				ss >> tempnum; //portno//////////////////////////////////////////////////needs to check permission
 				ss >> filename; // sha
-				int t; 	
-				for(int i=0;i<filesharingdetails[filename].size();i++)
+				bool ingroup = false;
+				bool fileingroup = false;
+				// portno is in group or not
+				for(int i=0;i<groupmembers[temp].size();i++)
 				{
-					t = filesharingdetails[filename][i];
-					order = order +  to_string(t) + " ";
+					if(groupmembers[temp][i] == tempnum) ingroup = true;
+				}
+				for(int i=0;i<filegroupdetails[filename].size();i++)
+				{
+					if(filegroupdetails[filename][i] == temp) fileingroup = true; 
+				}
+				cout << ingroup << " " << fileingroup << endl;
+				if(ingroup && fileingroup){
+					int t = filesharingdetails[filename][0]; 	
+					order = order + to_string(t) + " "; /// file size appended
+					string ip;
+					string pp;
+					for(int i=1;i<filesharingdetails[filename].size();i++){
+						
+						ip = portandip[filesharingdetails[filename][i]]; /// ip of port
+						pp = to_string(filesharingdetails[filename][i]); // port 
+						order = order + " " + pp + " " + ip; // append port and ip
+					}
+				}	
+				else{
+					order = "File not Available or Client is not a member of group" ;
 				}
 				send(sock,order.c_str(),order.size(),0);		
 			}
@@ -436,10 +490,10 @@ void *handleall(void *fd)
 }
 
 
-
 void *kernelthread(void *kernelpointer){
-
-	int portno = *(int *)kernelpointer;
+	struct trackerdetails *args = (struct trackerdetails *)kernelpointer;
+	int portno = args->portno;
+	string ip = args->ip;
 	int sockfd,n;
 	int *new_sock; // for each pthread
 	struct sockaddr_in serveraddress , clientaddress;
@@ -458,7 +512,8 @@ void *kernelthread(void *kernelpointer){
 	serveraddress.sin_family = AF_INET;
 	serveraddress.sin_addr.s_addr = INADDR_ANY;
 	serveraddress.sin_port= htons(portno);
-
+  
+    serveraddress.sin_addr.s_addr = inet_addr(ip.c_str()); 
 	//bind and start listning
 	if(bind(sockfd,(struct sockaddr *)&serveraddress, sizeof(serveraddress)) < 0) error("error bind socket");
 	listen(sockfd,100);
@@ -471,7 +526,7 @@ void *kernelthread(void *kernelpointer){
 		pthread_t server_thread;
 		clientsockfd[sss] = accept(sockfd,(struct sockaddr *)&clientaddress,&clilen);
 		
-		auto pid = pthread_create(&server_thread,NULL,handleall,&clientsockfd[sss]);
+		auto pid =pthread_create(&server_thread,NULL,handleall,&clientsockfd[sss]);
 
 		if(pid!=0){
 			perror("thread failed in main connection");
@@ -484,94 +539,152 @@ void *kernelthread(void *kernelpointer){
 		
 	}
 
-	// pthread_exit(NULL);
+	pthread_exit(NULL);
 
 }
 
-
-void portaddedtotracker(int portno){
-	FILE *fp = fopen("tracker_info.txt" , "ab");
-	fseek(fp,0,SEEK_END);
-	string s = to_string(portno);
-	fwrite(s.c_str(),1,s.size(),fp);
-	fwrite(&ch,1,sizeof(ch),fp);
-	fclose(fp);
-}
-
-void portdeletedfromtracker(int portno){
-	string pno = to_string(portno);
-	string line;
-
-	ofstream temp;
-	temp.open("temp.txt");
-	ifstream fp;
-	fp.open("tracker_info.txt");
-	while(getline(fp,line)){
-		if(line != pno){
-			temp << line << endl;
-		}
-	}
-	temp.close();
-	fp.close();
-	remove("tracker_info.txt");
-	rename("temp.txt","tracker_info.txt");
-
-}
 
 string readtrackerinfo(){
 
-	string path = "tracker_info.txt";
-	ifstream tracker(path.c_str());
+	ifstream tracker(trackerpath.c_str());
 	string port;
-	getline(tracker,port);
-	tracker.close();
-	return port;		
-}
-
-int startconnection(int portno){
-		int port = portno;	
-		int sockfd,n;
-		char buffer[255];
-		struct sockaddr_in serv_addr;
-		struct hostent *server;
-		
-		sockfd = socket(AF_INET,SOCK_STREAM,0);
-		
-		if(sockfd < 0){
-			error("Error Opening Socket");
-			return -1;
-		}
-		string ip = "127.0.0.1";
-		server = gethostbyname(ip.c_str());
-		bzero((char *)&serv_addr,sizeof(serv_addr));
-		
-		serv_addr.sin_family = AF_INET;
-		bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
-		serv_addr.sin_port = htons(port);
-		
-		if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
-			cout << "Error Connecting" << endl;
-			return -1;
-		}
-
-		return sockfd;
-}
-
-void copyfunction(){
-	char buffer[100];
-	memset(buffer,'\0',sizeof(buffer));
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return;
-	int portno = atoi(pt.c_str());
-	int sockfd = startconnection(portno);
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
+	string ip;
+	string result;
+	int i=0;
+	while(i!=number){
+		getline(tracker,result);
+		i++;
 	}
-	string command="";
-	command = "20";
-	send(sockfd,command.c_str(),command.size(),0);
-	close(sockfd);
+	stringstream ss(result);
+	ss >> port;
+	ss >> ip;
+	tracker.close();
+	result ="";
+	result = port + " " + ip;
+	cout << result << endl;
+	return result;		
+}
+
+// int startconnection(int portno){
+// 		int port = portno;	
+// 		int sockfd,n;
+// 		char buffer[255];
+// 		struct sockaddr_in serv_addr;
+// 		struct hostent *server;
+		
+// 		sockfd = socket(AF_INET,SOCK_STREAM,0);
+		
+// 		if(sockfd < 0){
+// 			error("Error Opening Socket");
+// 			return -1;
+// 		}
+// 		string ip = "127.0.0.1";
+// 		server = gethostbyname(ip.c_str());
+// 		bzero((char *)&serv_addr,sizeof(serv_addr));
+		
+// 		serv_addr.sin_family = AF_INET;
+// 		bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
+// 		serv_addr.sin_port = htons(port);
+		
+// 		if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
+// 			cout << "Error Connecting" << endl;
+// 			return -1;
+// 		}
+
+// 		return sockfd;
+// }
+
+int startconnection()
+{
+	
+	string pt = readtrackerinfo();
+	int port;
+	string ipp;
+	stringstream ss(pt);
+	ss >> port;
+	ss >> ipp;
+	cout << port << " "  << ipp << endl;
+	int sockfd,n;
+	char buffer[255];
+	struct sockaddr_in serv_addr;
+	struct hostent *server;
+	
+	sockfd = socket(AF_INET,SOCK_STREAM,0);
+	
+	if(sockfd < 0){
+		error("Error Opening Socket");
+		return -1;
+	}
+	// string ip = "127.0.0.1";
+	server = gethostbyname(ipp.c_str());
+	bzero((char *)&serv_addr,sizeof(serv_addr));
+	
+	serv_addr.sin_family = AF_INET;
+	bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
+	serv_addr.sin_port = htons(port);
+	
+	if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
+		cout << "Error Connecting" << endl;
+		return -1;
+	}
+
+	return sockfd;
+}
+
+void copyfunction(string path){
+
+		char buffer[100];
+		memset(buffer,'\0',sizeof(buffer));
+
+		int sockfd = startconnection();
+		if(sockfd == -1)
+		{
+			cout << "No Tracker is Online...Try later.." << endl;
+		}
+		string command="";
+		command = "21";
+		send(sockfd,command.c_str(),command.size(),0);
+		recv(sockfd,buffer,sizeof(buffer), 0);
+		memset(buffer,'\0',sizeof(buffer));
+		// int sock = startconnection();
+    	string  filepath = path;
+	    FILE *fp;
+	    fp = fopen(filepath.c_str(),"rb");
+	    fseek ( fp , 0 , SEEK_END);
+	  	int size = ftell ( fp );
+	  	rewind (fp);
+		// // send ( sockfd , &size, sizeof(size), 0);
+		int n;
+		char Buffer[1] ; 
+			while ( ( n = fread( Buffer , sizeof(char) , 1 , fp ) ) > 0  && size > 0 ){
+				send (sockfd , Buffer, n, 0 );
+				cout << Buffer;
+		   	 	memset ( Buffer , '\0', 1);
+				size = size - n ;
+		}
+		fclose(fp);
+		memset(buffer,'\0',sizeof(buffer));
+		remove(filepath.c_str());
+		close( sockfd);
+
+}
+
+void copyfunction1(){
+
+
+		char buffer[100];
+		memset(buffer,'\0',sizeof(buffer));
+
+		int sockfd = startconnection();
+		if(sockfd == -1)
+		{
+			cout << "No Tracker is Online...Try later.." << endl;
+		}
+		string command="";
+		command = "20";
+		send(sockfd,command.c_str(),command.size(),0);
+		close( sockfd);
+
 }
 
 void createbackupforall()
@@ -656,18 +769,29 @@ void createbackupforall()
 
 }
 
+
+
 int main(int argc,char *argv[]){
 
+	trackerpath = argv[1];
+	number = atoi(argv[2]);
+	string address = readtrackerinfo();
 	int portno;
-	cout << "Enter Tracker Port" << endl;
-	cin >> portno;
+	string ip;
+	stringstream ss(address);
+	ss >> portno;
+	ss >> ip;
+
+	struct trackerdetails td;
+	td.portno = portno;
+	td.ip = ip;
 	
-	portaddedtotracker(portno);
+	// portaddedtotracker(trackerip,portno);
 
 	pthread_t kernel;
 	int i=0;
 	
-	auto pid = pthread_create(&kernel,NULL,kernelthread,&portno);
+	auto pid = pthread_create(&kernel,NULL,kernelthread,(void *)&td);
 	string s= "quit";
 	
 	while(1){
@@ -675,8 +799,17 @@ int main(int argc,char *argv[]){
 		getline(cin,input);
 		if(input == s){
 			createbackupforall();
-			portdeletedfromtracker(portno); 
-			copyfunction();
+			// portdeletedfromtracker(portno); 
+
+			if(number == 1) number = 2;
+			else number=1;
+			string p = "backup";
+			for(int i=1;i<7;i++){	
+					p = p + to_string(i) + ".txt";
+					copyfunction(p);
+					p="backup";
+			}
+				copyfunction1();
 			return 0;
 		} 
 	}

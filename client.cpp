@@ -7,14 +7,6 @@
 #include<netinet/in.h>
 #include<netdb.h>
 #include<iostream>
-#include<stdio.h>
-#include <stdlib.h>
-#include<string.h>
-#include <unistd.h>
-#include<sys/types.h>
-#include<sys/socket.h>
-#include<netinet/in.h>
-#include<iostream>
 #include<pthread.h>
 #include <fcntl.h>
 #include<sys/stat.h>
@@ -26,17 +18,24 @@
 #include<vector>
 
 using namespace std;
-unordered_map<string,vector<string>> filedetails;
-unordered_map<string,string> filenamedetails;
+unordered_map<string,vector<string>> filedetails; // sha -> chuncks sha
+unordered_map<string,string> filenamedetails; //sha -> location
 int download=1;
-int ccc=1;
+string trackerpath;
+int number;
+
+struct serverdetails{
+	string ip;
+	int portno;
+};
+
 
 struct downloaddetails{
 	int portno;
 	string sha;
 	int chunk;
+	string ip ;
 	string path;
-	int index;
 };
 
 void error(const char* msg){
@@ -44,20 +43,36 @@ void error(const char* msg){
 	exit(1);
 }
 
-string readtrackerinfo(){
 
-	string path = "tracker_info.txt";
-	ifstream tracker(path.c_str());
+string readtrackerinfo(){
+	ifstream tracker(trackerpath.c_str());
 	string port;
-	getline(tracker,port);
+	string ip;
+	string result;
+	int i=0;
+	while(i!=number){
+		getline(tracker,result);
+		i++;
+	}
+	stringstream ss(result);
+	ss >> port;
+	ss >> ip;
 	tracker.close();
-	return port;		
+	result ="";
+	result = port + " " + ip;
+	return result;		
 }
 
-int startconnection(int portno)
+int startconnection()
 {
+	string pt = readtrackerinfo();
+	// cout << pt << endl;
+	int port;
+	string ipp;
+	stringstream ss(pt);
+	ss >> port;
+	ss >> ipp;
 
-	int port = portno;	
 	int sockfd,n;
 	char buffer[255];
 	struct sockaddr_in serv_addr;
@@ -66,11 +81,11 @@ int startconnection(int portno)
 	sockfd = socket(AF_INET,SOCK_STREAM,0);
 	
 	if(sockfd < 0){
-		error("Error Opening Socket");
+		cout << "Error Opening Socket";
 		return -1;
 	}
-	string ip = "127.0.0.1";
-	server = gethostbyname(ip.c_str());
+	// string ip = "127.0.0.1";
+	server = gethostbyname(ipp.c_str());
 	bzero((char *)&serv_addr,sizeof(serv_addr));
 	
 	serv_addr.sin_family = AF_INET;
@@ -85,19 +100,24 @@ int startconnection(int portno)
 	return sockfd;
 }
 
-string logintosystem(string username, string password,int peerportno){
-	string pt = readtrackerinfo();
-	int portno = atoi(pt.c_str());
-	int sockfd = startconnection(portno); if(sockfd == -1) return "False";
+string logintosystem(string username, string password,int peerportno,string ip){
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
+	}
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
-	}
+	
 	string command="";
-	command = "2"+ username + " " + password + " " + to_string(peerportno);
+	command = "2"+ username + " " + password + " " + to_string(peerportno) + " " + ip;
 	send(sockfd,command.c_str(),command.size(),0);
 	recv(sockfd,buffer,sizeof(buffer),0);
 	string recvedcommand;
@@ -111,18 +131,19 @@ string logintosystem(string username, string password,int peerportno){
 }
 
 string createuser(string username , string password){
-
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-
-	int sockfd = startconnection(portno); if(sockfd == -1) return "False";
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
 
 	string command="";
@@ -143,15 +164,17 @@ string creategroup(string gid,int peerportno){
 
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-
-	int sockfd = startconnection(portno); if(sockfd == -1) return "False";
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
 
 
@@ -173,19 +196,20 @@ string creategroup(string gid,int peerportno){
 
 string listgroup(){
 
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-	// cout << "portno" << portno << endl;
-	int sockfd = startconnection(portno);
-	char buffer[100];
+	char buffer[1024];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
-
 	string command="";
 	command = "4";
 
@@ -204,16 +228,19 @@ string listgroup(){
 string joingroup(string gid,int peerportno){
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-
-	int sockfd = startconnection(portno); if(sockfd == -1) return "False";
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
+
 	
 	string command="";
 	string xx= "xxx";
@@ -232,18 +259,21 @@ string joingroup(string gid,int peerportno){
 }
 
 string listjoiningrequest(string gid,int peerportno){
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-	// cout << "portno" << portno << endl;
-	int sockfd = startconnection(portno);  if(sockfd == -1) return "False";
 	char buffer[2048];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
+
 
 	string command="";
 	string xx= "xxx";
@@ -262,18 +292,22 @@ string listjoiningrequest(string gid,int peerportno){
 }
 
 string acceptrequest(string gid,int userportno,int peerportno){
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-	// cout << "portno" << portno << endl;
-	int sockfd = startconnection(portno);
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
+
+
 
 	string command="";
 	string xx= "xxx";
@@ -294,17 +328,19 @@ string acceptrequest(string gid,int userportno,int peerportno){
 
 string leavegroup(string gid,int peerportno){
 
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-	// cout << "portno" << portno << endl;
-	int sockfd = startconnection(portno);  if(sockfd == -1) return "False";
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
 
 	string command="";
@@ -377,17 +413,19 @@ string addshatomap(string path){
 
 string uploadfile(string path,string sha,string gid,int peerportno){
 
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-	// cout << "portno" << portno << endl;
-	int sockfd = startconnection(portno);  if(sockfd == -1) return "False";
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
 
 	FILE* fp = fopen(path.c_str(),"rb");
@@ -412,17 +450,19 @@ string uploadfile(string path,string sha,string gid,int peerportno){
 }
 
 string listfile(string gid,int peerportno){
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-	// cout << "portno" << portno << endl;
-	int sockfd = startconnection(portno);  if(sockfd == -1) return "False";
-	char buffer[2048];
+	char buffer[4048];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
 
 	string command="";
@@ -441,24 +481,27 @@ string listfile(string gid,int peerportno){
 	return recvedcommand;	
 }
 
-string downloadfile(string gid,string filename,int peerportno)
+string downloadfile(string gid,string sha,int peerportno)
 {
 
-	string pt = readtrackerinfo();
-	if(pt.size() == 0) return "False";
-	int portno = atoi(pt.c_str());
-	int sockfd = startconnection(portno);  if(sockfd == -1) return "False";
 	char buffer[100];
 	memset(buffer,'\0',sizeof(buffer));
-	if(sockfd == -1)
-	{
-		cout << "No Tracker is Online...Try later.." << endl;
-		return "False";
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
 	}
 
 	string xx="xx";
 	string command="";
-	command = "11"+ xx + " " + gid + " " + to_string(peerportno) + " " + filename;
+	command = "11"+ xx + " " + gid + " " + to_string(peerportno) + " " + sha;
 	send(sockfd,command.c_str(),command.size(),0);
 	recv(sockfd,buffer,sizeof(buffer),0);
 	string recvedcommand;
@@ -472,7 +515,7 @@ string downloadfile(string gid,string filename,int peerportno)
 
 }
 
-int connectforchunk(int portno)
+int connectforchunk(int portno,string ip)
 {
 
 	int port = portno;	
@@ -487,7 +530,6 @@ int connectforchunk(int portno)
 		error("Error Opening Socket");
 		return -1;
 	}
-	string ip = "127.0.0.1";
 	server = gethostbyname(ip.c_str());
 	bzero((char *)&serv_addr,sizeof(serv_addr));
 	
@@ -499,20 +541,19 @@ int connectforchunk(int portno)
 		cout << "Error Connecting" << endl;
 		return -1;
 	}
-	cout << "Connected to server " << endl;
+	else cout << "Connected to server for getting chunk details" << endl;
 	return sockfd;
 }
 
 vector<string> getchunkdetails(vector<string> &server,string sha){
 
 	vector<string> result;
-	for(int i=0;i<server.size();i++)
+	for(int i=0;i<server.size();i=i+2)
 	{
-		cout << "Server msg sended to " << server[i] << endl;
 		string p = server[i];
+		string ip = server[i+1];
 		int port = atoi(p.c_str());
-		cout << "port is " << endl;
-		int sockchunk = connectforchunk(port);
+		int sockchunk = connectforchunk(port,ip);
 		char buffer[100];
 		memset(buffer,'\0',sizeof(buffer));
 		if(sockchunk == -1)
@@ -522,7 +563,7 @@ vector<string> getchunkdetails(vector<string> &server,string sha){
 		}
 		string command = "file";
 		command = command + " " + sha;
-		// cout << "command sent is "<< command << endl;
+		cout << "command sent is "<< command << endl;
 		send(sockchunk,command.c_str(),command.size(),0);
 		recv(sockchunk,buffer,sizeof(buffer),0);
 		
@@ -533,7 +574,7 @@ vector<string> getchunkdetails(vector<string> &server,string sha){
 			k++;
 		}
 		close(sockchunk);
-		// cout << "Comm resv is " << recvedcomman?d << endl;
+		cout << "Comm resv is " << recvedcommand << endl;
 		result.push_back(recvedcommand);
 	}
 
@@ -581,80 +622,90 @@ void *writemsg(void *fd){
 	struct downloaddetails *args = (struct downloaddetails *)fd;
 			int chunk = args->chunk;
 			int port = args->portno;
-			int index = args->index;
+			string ip = args->ip;
 			string sha = args->sha;
 			string path = args->path;
 
-			cout << sha << " " << port << " " << path  << " " << chunk << index << endl;	
-			// int sockfd,n;
-			// char buffer[255];
-			// struct sockaddr_in serv_addr;
-			// struct hostent *server;
+			// cout << chunk << " " << port << " " << sha << " " << path << endl;	
+			int sockfd,n;
+			char buffer[255];
+			struct sockaddr_in serv_addr;
+			struct hostent *server;
 			
-			// sockfd = socket(AF_INET,SOCK_STREAM,0);
+			sockfd = socket(AF_INET,SOCK_STREAM,0);
 			
-			// if(sockfd < 0){
-			// 	error("Error Opening Socket");
-			// }
-			// string ip = "127.0.0.1";
-			// server = gethostbyname(ip.c_str());
-			// bzero((char *)&serv_addr,sizeof(serv_addr));
+			if(sockfd < 0){
+				error("Error Opening Socket");
+			}
 			
-			// serv_addr.sin_family = AF_INET;
-			// bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
-			// serv_addr.sin_port = htons(port);
+			server = gethostbyname(ip.c_str());
+			bzero((char *)&serv_addr,sizeof(serv_addr));
 			
-			// if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
-			// 	cout << "Error Connecting" << endl;
-			// }
-			// cout << "Connected to server " << endl;
+			serv_addr.sin_family = AF_INET;
+			bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
+			serv_addr.sin_port = htons(port);
+			
+			if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
+				cout << "Error Connecting" << endl;
+			}
+			cout << "Connected to server " << endl;
 
 
-			// string command = "download";
-			// command = command + " " + sha + " " + to_string(chunk);
+			string command = "download";
+			command = command + " " + sha + " " + to_string(chunk);
 
 			// cout << "comm via thread " << command << endl;
-			// send(sockfd,command.c_str(),command.size(),0);
+			send(sockfd,command.c_str(),command.size(),0);
 
-			// FILE *fp = fopen(path.c_str(),"r+");	
-			// char Buffer [1] ;
-			// int file_size = (512*1024);
-			// int start = 0 + chunk*(512*1024); 
-			// fseek(fp,start,SEEK_SET);
-			// while ( ( n = recv(sockfd,Buffer,1, 0)) > 0 && file_size > 0) {
-			// 	fwrite (Buffer , sizeof (char), n, fp);
-			// 	memset ( Buffer , '\0', 1);
-			// 	file_size = file_size - n;
-			// }
-			// close(sockfd);
-			// fclose(fp);	
+			FILE *fp = fopen(path.c_str(),"r+");	
+			char Buffer [1] ;
+			int file_size = (512*1024);
+			int start = 0 + chunk*(512*1024); 
+			fseek(fp,start,SEEK_SET);
+			while ( ( n = recv(sockfd,Buffer,1, 0)) > 0 && file_size > 0) {
+				fwrite (Buffer , sizeof (char), n, fp);
+				memset ( Buffer , '\0', 1);
+				file_size = file_size - n;
+			}
+			close(sockfd);
+			fclose(fp);	
 }
 
 void downloadmultiplefile(unordered_map<string,vector<int>> &m,string path,string sha){
 
-	pthread_t threads[10];
+	int j=0;
+	struct downloaddetails dd[20];
 	for(auto i = m.begin();i!=m.end();i++){
 
-		string portstring = i->first;
-		int ss = m[portstring].size();
-		int j=0;
-		struct downloaddetails dd[5];
-		while(j!=2){
-			pthread_t th;
-			dd[j].index = j;
+		string temp = i->first;
+		stringstream ff(temp);
+		int port;
+		string ip;
+		ff >> port;
+		ff >> ip;
+		int ss = m[temp].size();
+		// int j=0;
+		while(j<ss){
 			dd[j].sha = sha;
 			dd[j].path = path;
-			dd[j].portno = atoi(portstring.c_str());
-			dd[j].chunk = m[portstring][j];
-			cout << "downloadmultiplefile " << dd[j].sha << " " << dd[j].portno << " " << dd[j].path << " " << dd[j].chunk  << " " << dd[j].index << endl;
-	     	pthread_create(&threads[j], NULL, writemsg, (void *)&dd[j]);
+			dd[j].portno = port;
+			dd[j].ip = ip;
+			dd[j].chunk = m[temp][j];
 	     	j++;
 	     }	
 	}
 
-	pthread_join(threads[0],NULL);
-	pthread_join(threads[1],NULL);
-	pthread_join(threads[2],NULL);	
+	pthread_t threads[20];
+	for(int i=0;i<3;i++)
+	{
+		pthread_create(&threads[i], NULL, writemsg, (void *)&dd[i]);
+		// pthread_detach(threads[i]);
+	}
+
+	for(int k=0;k<3;k++)
+	{
+		pthread_join(threads[k],NULL);
+	}
 }
 
 void dotheaction(string msg,string path,string sha){
@@ -669,9 +720,12 @@ void dotheaction(string msg,string path,string sha){
 		server.push_back(temp);
 	}
 
+	for(int i=0;i<server.size();i++)
+	{
+		cout << server[i] << " ";
+	}
 	char ch='0';
-	string downloadfile = "downloadfile" + to_string(download); // create empty file using size given
-    FILE *f = fopen(downloadfile.c_str(),"wb");
+    FILE *f = fopen(path.c_str(),"wb");
     int i=0;
     while(i<size){
        fwrite(&ch,sizeof(ch),1,f);
@@ -684,30 +738,23 @@ void dotheaction(string msg,string path,string sha){
     
     unordered_map<string,vector<int>> mm; // chunk details stored in map [port->chunk number]
     int a;
+    int k=0;
     for(int i=0;i<chunkdetails.size();i++)
     {
     	stringstream kk(chunkdetails[i]);
+    	string addrr= server[k] + " " + server[k+1];
+    	k=k+2;
     	while(kk >> a){
-	    	mm[server[i]].push_back(a);
+	    	mm[addrr].push_back(a);
 	    }
     }
-    for(auto i = mm.begin();i!=mm.end() ;i++)
-    {
-    	string nn = i->first;
-    	for(int j=0;j<mm[nn].size();j++)
-    	{
-    		cout << i->first << " " << mm[nn][j]<< endl;
-    	}
-    }
-    downloadmultiplefile(mm,downloadfile,sha);
-    // download++;
+
+    downloadmultiplefile(mm,path,sha);
+    download++;
 }
 
 void *sendchunkdetails(void *fd_pointer)
 {
-	cout << "Thread-" << ccc<< endl;
-	ccc++;
-	printf("Hello Server Handler \n");
 	int sock = *(int *)fd_pointer;
 	char buffer[1024];
 	memset(buffer,'\0',1024);
@@ -718,7 +765,7 @@ void *sendchunkdetails(void *fd_pointer)
 		msg = msg + buffer[i];
 		i++;
 	}
-	cout << "Msg recv from client " << msg << endl;
+	// cout << "Msg recv from client " << msg << endl;
 	stringstream ss(msg); 
 	string result;
 	ss >> result;
@@ -737,10 +784,10 @@ void *sendchunkdetails(void *fd_pointer)
 		ss >> result;
 		int chunk;
 		string  filepath =filenamedetails[result];
-		cout << "File Details " << filepath << endl;
+		// cout << "File Details " << filepath << endl;
 		ss >> chunk;
 	    FILE *fp;
-	    cout << "download command from client  " << result << " " << chunk << endl;
+	    // cout << "download command from client  " << result << " " << chunk << endl;
 	    fp = fopen(filepath.c_str(),"rb");
 	    int start = chunk*(512*1024);
 		int end = start + (512*1024);
@@ -756,13 +803,14 @@ void *sendchunkdetails(void *fd_pointer)
 		fclose(fp);
 	}
 	close( sock);
-	pthread_exit(NULL);
- 
+	// pthread_exit(NULL);
 }
 
+void *runserver(void *fd){
+	struct serverdetails *args = (struct serverdetails *)fd;
+	int portno = args->portno;
+	string ip = args->ip;
 
-void *runserver(void *port){
-	int portno = *(int *)port;
 	int sockfd,n;
 	int *new_sock; // for each pthread
 	struct sockaddr_in serveraddress , clientaddress;
@@ -777,42 +825,52 @@ void *runserver(void *port){
 	serveraddress.sin_addr.s_addr = INADDR_ANY;
 	serveraddress.sin_port= htons(portno);
 
+    serveraddress.sin_addr.s_addr = inet_addr(ip.c_str()); 
 	//bind and start listning
 	if(bind(sockfd,(struct sockaddr *)&serveraddress, sizeof(serveraddress)) < 0) error("error bind socket");
 	listen(sockfd,100);
 	int clientsockfd[100];
-	pthread_t threads[10];
 	int sss=0;
 	while(1)
 	{
 
 		// cout << "waiting for request" << endl;
 		socklen_t clilen = sizeof(clientaddress);
-		// pthread_t server_thread;
+		pthread_t th;
 		clientsockfd[sss] = accept(sockfd,(struct sockaddr *)&clientaddress,&clilen);
-		
-		auto pid = pthread_create(&threads[sss],NULL,sendchunkdetails,&clientsockfd[sss]);
+		auto pid = pthread_create(&th,NULL,sendchunkdetails,&clientsockfd[sss]);
 
 		if(pid!=0){
 			perror("Server thread failed in main connection");
-			exit(-1);
-			}
-			else{
-			cout<<"Server success from main thread"<<endl;
+		}
+		else{cout<<"Server success from main thread"<<endl;
 			}		
+		sss++;
 	}
 }
 
 int main(int argc,char *argv[]){
 
+	trackerpath = argv[1];
+	number=1;
+
 	int peerportno;
 	cout << "Enter My Port Number" <<endl;
 	cin >> peerportno;
+	cout << " IP Addr " << endl;
+	string ip;
+	cin >> ip;
+
+	struct serverdetails sd;
+	sd.portno = peerportno;
+	sd.ip = ip;
+
 	pthread_t serverthread;
+	
 	string temp11;
 	getline(cin,temp11);
 	
-	pthread_create(&serverthread,NULL,runserver,&peerportno); ////////////////server and client port define
+	pthread_create(&serverthread,NULL,runserver,(void *)&sd); ////////////////server and client port define
 
 	string msg,username,password,temp;
 	bool running = true;
@@ -843,7 +901,7 @@ int main(int argc,char *argv[]){
 				
 				ss >> username;
 				ss >> password;
-				msg = logintosystem(username,password,peerportno);
+				msg = logintosystem(username,password,peerportno,ip);
 				if(msg == "False")
 					{
 						running = false;	
@@ -994,8 +1052,12 @@ int main(int argc,char *argv[]){
 				}
 
 				dotheaction(msg,path,sha);
-				cout << "Download Completed " << endl;
+				filenamedetails[sha] = path;
+				string downloadedsha = addshatomap(path);
+				if(downloadedsha == sha) cout << "File downloaded with no errors" << endl;
+				else cout << "File Not Completely downloaded " << endl;
 			}
+
 			else{
 				cout << "Wrong Operation" << endl;
 			}
