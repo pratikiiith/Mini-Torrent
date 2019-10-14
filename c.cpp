@@ -16,13 +16,15 @@
 #include <fstream>
 #include <openssl/sha.h>
 #include<vector>
-
+#include <cmath> 
 using namespace std;
 unordered_map<string,vector<string>> filedetails; // sha -> chuncks sha
 unordered_map<string,string> filenamedetails; //sha -> location
 int download=1;
 string trackerpath;
 int number;
+pthread_mutex_t lock; 
+bool arr[20];
 
 struct serverdetails{
 	string ip;
@@ -33,7 +35,7 @@ struct serverdetails{
 struct downloaddetails{
 	int portno;
 	string sha;
-	int chunk;
+	vector<int> chunk;
 	string ip ;
 	string path;
 };
@@ -245,6 +247,38 @@ string joingroup(string gid,int peerportno){
 	string command="";
 	string xx= "xxx";
 	command = "5"+ xx + " " + gid + " " + to_string(peerportno);
+
+	send(sockfd,command.c_str(),command.size(),0);
+	recv(sockfd,buffer,sizeof(buffer),0);
+	string recvedcommand;
+	int i=0;
+	while(buffer[i] != '\0'){
+		recvedcommand = recvedcommand + buffer[i];
+		i++;
+	}
+	close(sockfd);
+	return recvedcommand;
+}
+
+string stopsharing(string gid,string sha,int peerportno)
+{
+	char buffer[2048];
+	memset(buffer,'\0',sizeof(buffer));
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
+	}
+	string command="";
+	string xx= "xxx";
+	command = "12"+ xx + " " + gid + " " + sha + " " + to_string(peerportno);
 
 	send(sockfd,command.c_str(),command.size(),0);
 	recv(sockfd,buffer,sizeof(buffer),0);
@@ -481,6 +515,40 @@ string listfile(string gid,int peerportno){
 	return recvedcommand;	
 }
 
+string logout(int no){
+	int peerportno = no;
+	char buffer[100];
+	memset(buffer,'\0',sizeof(buffer));
+	int c = 0;
+	int sockfd = startconnection();
+	if(sockfd == -1){
+		if(number == 1) number =2;
+		else number=1;
+		sockfd = startconnection();
+		if(c == 2) {
+			cout << "No Tracker is Online...Try later.." << endl;
+			return "False";
+		}
+		c++;
+	}
+
+	string command="";
+	string xx= "xxx";
+	command = "13"+ xx + " " + to_string(peerportno);
+
+	send(sockfd,command.c_str(),command.size(),0);
+	recv(sockfd,buffer,sizeof(buffer),0);
+	string recvedcommand;
+	int i=0;
+	while(buffer[i] != '\0'){
+		recvedcommand = recvedcommand + buffer[i];
+		i++;
+	}
+	close(sockfd);
+	return recvedcommand;	
+}
+
+
 string downloadfile(string gid,string sha,int peerportno)
 {
 
@@ -541,7 +609,7 @@ int connectforchunk(int portno,string ip)
 		cout << "Error Connecting" << endl;
 		return -1;
 	}
-	cout << "Connected to server " << endl;
+	else cout << "Connected to server for getting chunk details" << endl;
 	return sockfd;
 }
 
@@ -563,7 +631,7 @@ vector<string> getchunkdetails(vector<string> &server,string sha){
 		}
 		string command = "file";
 		command = command + " " + sha;
-		// cout << "command sent is "<< command << endl;
+		cout << "command sent is "<< command << endl;
 		send(sockchunk,command.c_str(),command.size(),0);
 		recv(sockchunk,buffer,sizeof(buffer),0);
 		
@@ -574,107 +642,132 @@ vector<string> getchunkdetails(vector<string> &server,string sha){
 			k++;
 		}
 		close(sockchunk);
-		// cout << "Comm resv is " << recvedcomman?d << endl;
+		cout << "Comm resv is " << recvedcommand << endl;
 		result.push_back(recvedcommand);
 	}
 
 	return result;
 }
 
-// void downloadfilefromchunk(unordered_map<string,vector<int>> &m,string path,string sha){
-	
-// 	int arr v[200];
-// 	memset(v,0,sizeof(arr));
-// 	for(auto i = m.begin();i!=m.end();i++){
+// void *writemsg(void *fd){
+// 	struct downloaddetails *args = (struct downloaddetails *)fd;
+// 			int chunk = args->chunk;
+// 			int port = args->portno;
+// 			string ip = args->ip;
+// 			string sha = args->sha;
+// 			string path = args->path;
 
-// 		string portstring = i->first;
-		
-// 		for(int j=0;j<m[portstring].size();j++){
+// 			// cout << chunk << " " << port << " " << sha << " " << path << endl;	
+// 			int sockfd,n;
+// 			char buffer[255];
+// 			struct sockaddr_in serv_addr;
+// 			struct hostent *server;
 			
-// 			if(v[j] == 0){
-// 				v[j] =1;
-// 				int chunk = m[portstring][j];
-// 				int portno = atoi(portstring.c_str());
-// 				int sock = connectforchunk(portno);
-// 				string command = "download";
-// 				command = command + " " + sha + " " + to_string(chunk);
-// 				send(sock,command.c_str(),command.size(),0);
+// 			sockfd = socket(AF_INET,SOCK_STREAM,0);
+			
+// 			if(sockfd < 0){
+// 				error("Error Opening Socket");
+// 			}
+			
+// 			server = gethostbyname(ip.c_str());
+// 			bzero((char *)&serv_addr,sizeof(serv_addr));
+			
+// 			serv_addr.sin_family = AF_INET;
+// 			bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
+// 			serv_addr.sin_port = htons(port);
+			
+// 			if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
+// 				cout << "Error Connecting" << endl;
+// 			}
+// 			// cout << "Connected to server " << endl;
 
-// 				FILE *fp = fopen(path.c_str(),"r+");	
-// 				char Buffer [1] ;
-// 				int file_size = (512*1024);
-// 				int start = 0 + chunk*(512*1024); 
-// 				fseek(fp,start,SEEK_SET);
-// 				int n;
-// 				while ( ( n = recv(sock,Buffer,1, 0)) > 0 && file_size > 0) {
-// 					fwrite (Buffer , sizeof (char), n, fp);
-// 					memset ( Buffer , '\0', 1);
-// 					file_size = file_size - n;
-// 				}
-// 				close(sock);
-// 				fclose(fp);	
-// 			}	
-// 		}		
-// 	}
+
+// 			string command = "download";
+// 			command = command + " " + sha + " " + to_string(chunk);
+
+// 			// cout << "comm via thread " << command << endl;
+// 			send(sockfd,command.c_str(),command.size(),0);
+
+// 			FILE *fp = fopen(path.c_str(),"r+");	
+// 			char Buffer [1] ;
+// 			int file_size = (512*1024);
+// 			int start = 0 + chunk*(512*1024); 
+// 			fseek(fp,start,SEEK_SET);
+// 			while ( ( n = recv(sockfd,Buffer,1, 0)) > 0 && file_size > 0) {
+// 				fwrite (Buffer , sizeof (char), n, fp);
+// 				memset ( Buffer , '\0', 1);
+// 				file_size = file_size - n;
+// 			}
+// 			cout << "Chunk " << chunk << "downloaded successfully from " <<  port << endl;
+// 			close(sockfd);
+// 			fclose(fp);	
 // }
 
 void *writemsg(void *fd){
-	struct downloaddetails *args = (struct downloaddetails *)fd;
-			int chunk = args->chunk;
-			int port = args->portno;
-			string ip = args->ip;
-			string sha = args->sha;
-			string path = args->path;
-
-			// cout << chunk << " " << port << " " << sha << " " << path << endl;	
-			int sockfd,n;
-			char buffer[255];
-			struct sockaddr_in serv_addr;
-			struct hostent *server;
-			
-			sockfd = socket(AF_INET,SOCK_STREAM,0);
-			
-			if(sockfd < 0){
-				error("Error Opening Socket");
+		struct downloaddetails *args = (struct downloaddetails *)fd;
+		vector<int> chunk = args->chunk;
+		int port = args->portno;
+		string ip = args->ip;
+		string sha = args->sha;
+		string path = args->path;
+		for(int i=0;i<chunk.size();i++)
+		{
+			bool check = false;
+			pthread_mutex_lock(&lock); 
+			if(arr[chunk[i]] == false){
+				arr[chunk[i]] = true;
+				check = true; 
 			}
-			
-			server = gethostbyname(ip.c_str());
-			bzero((char *)&serv_addr,sizeof(serv_addr));
-			
-			serv_addr.sin_family = AF_INET;
-			bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
-			serv_addr.sin_port = htons(port);
-			
-			if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
-				cout << "Error Connecting" << endl;
+			pthread_mutex_unlock(&lock);
+
+			if(check == true){
+				cout << port << " " << "reached for chunk" << " " << chunk[i] << endl;
+				int sockfd,n;
+				char buffer[255];
+				struct sockaddr_in serv_addr;
+				struct hostent *server;
+				
+				sockfd = socket(AF_INET,SOCK_STREAM,0);
+				
+				if(sockfd < 0){
+					error("Error Opening Socket");
+				}
+				server = gethostbyname(ip.c_str());
+				bzero((char *)&serv_addr,sizeof(serv_addr));
+				
+				serv_addr.sin_family = AF_INET;
+				bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
+				serv_addr.sin_port = htons(port);
+				
+				if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr))<0){
+					cout << "Error Connecting" << endl;
+				}
+				string command = "download";
+				command = command + " " + sha + " " + to_string(chunk[i]);
+				send(sockfd,command.c_str(),command.size(),0);
+				FILE *fp = fopen(path.c_str(),"r+");	
+				char Buffer [1] ;
+				int file_size = (512*1024);
+				int start = 0 + chunk[i]*(512*1024); 
+				fseek(fp,start,SEEK_SET);
+				while ( ( n = recv(sockfd,Buffer,1, 0)) > 0 && file_size > 0) {
+					fwrite (Buffer , sizeof (char), n, fp);
+					memset ( Buffer , '\0', 1);
+					file_size = file_size - n;
+				}
+				cout << "Chunk " << chunk[i] << "downloaded successfully from " <<  port << endl;
+				close(sockfd);
+				fclose(fp);	
 			}
-			cout << "Connected to server " << endl;
-
-
-			string command = "download";
-			command = command + " " + sha + " " + to_string(chunk);
-
-			// cout << "comm via thread " << command << endl;
-			send(sockfd,command.c_str(),command.size(),0);
-
-			FILE *fp = fopen(path.c_str(),"r+");	
-			char Buffer [1] ;
-			int file_size = (512*1024);
-			int start = 0 + chunk*(512*1024); 
-			fseek(fp,start,SEEK_SET);
-			while ( ( n = recv(sockfd,Buffer,1, 0)) > 0 && file_size > 0) {
-				fwrite (Buffer , sizeof (char), n, fp);
-				memset ( Buffer , '\0', 1);
-				file_size = file_size - n;
-			}
-			close(sockfd);
-			fclose(fp);	
+		}
 }
+
 
 void downloadmultiplefile(unordered_map<string,vector<int>> &m,string path,string sha){
 
 	int j=0;
 	struct downloaddetails dd[20];
+	memset(arr,false,sizeof(arr));
 	for(auto i = m.begin();i!=m.end();i++){
 
 		string temp = i->first;
@@ -685,24 +778,25 @@ void downloadmultiplefile(unordered_map<string,vector<int>> &m,string path,strin
 		ff >> ip;
 		int ss = m[temp].size();
 		// int j=0;
-		while(j<ss){
-			dd[j].sha = sha;
-			dd[j].path = path;
-			dd[j].portno = port;
-			dd[j].ip = ip;
-			dd[j].chunk = m[portstring][j];
-	     	j++;
-	     }	
+		dd[j].sha = sha;
+		dd[j].path = path;
+		dd[j].portno = port;
+		dd[j].ip = ip;			
+		for(int k=0;k<m[temp].size();k++)
+		{
+			(dd[j].chunk).push_back(m[temp][k]);
+		}
+		j++;
 	}
-
+	// cout << dd[1].portno << " " <<dd[1].chunk[0] << " " << dd[1].chunk[1] << endl;
 	pthread_t threads[20];
-	for(int i=0;i<3;i++)
+	for(int i=0;i<m.size();i++)
 	{
 		pthread_create(&threads[i], NULL, writemsg, (void *)&dd[i]);
 		// pthread_detach(threads[i]);
 	}
 
-	for(int k=0;k<3;k++)
+	for(int k=0;k<m.size();k++)
 	{
 		pthread_join(threads[k],NULL);
 	}
@@ -715,9 +809,16 @@ void dotheaction(string msg,string path,string sha){
 	
 	stringstream ss(msg);
 	ss >> size;
-	
+	int totalchunks = ceil((float)size / (512*1024));
+
+	cout << "size is " << size << " total chunks " << totalchunks << endl;
+
 	while(ss >> temp){ // tracker have sent size and port to contact
 		server.push_back(temp);
+	}
+
+	for(int i=0;i<server.size();i++){
+		cout << server[i] << " ";
 	}
 
 	char ch='0';
@@ -738,14 +839,14 @@ void dotheaction(string msg,string path,string sha){
     for(int i=0;i<chunkdetails.size();i++)
     {
     	stringstream kk(chunkdetails[i]);
-    	string addrr= server[k] + server[k+1];
+    	string addrr= server[k] + " " + server[k+1];
     	k=k+2;
     	while(kk >> a){
 	    	mm[addrr].push_back(a);
 	    }
     }
 
-    downloadfilefromchunk(mm,downloadfile,sha);
+    downloadmultiplefile(mm,path,sha);
     download++;
 }
 
@@ -832,9 +933,9 @@ void *runserver(void *fd){
 
 		// cout << "waiting for request" << endl;
 		socklen_t clilen = sizeof(clientaddress);
-		// pthread_t server_thread;
+		pthread_t th;
 		clientsockfd[sss] = accept(sockfd,(struct sockaddr *)&clientaddress,&clilen);
-		auto pid = pthread_create(&threads[sss],NULL,sendchunkdetails,&clientsockfd[sss]);
+		auto pid = pthread_create(&th,NULL,sendchunkdetails,&clientsockfd[sss]);
 
 		if(pid!=0){
 			perror("Server thread failed in main connection");
@@ -1052,6 +1153,35 @@ int main(int argc,char *argv[]){
 				string downloadedsha = addshatomap(path);
 				if(downloadedsha == sha) cout << "File downloaded with no errors" << endl;
 				else cout << "File Not Completely downloaded " << endl;
+			}
+			else if(command == "list_myfile" && login==true)
+			{
+				for(auto i=filenamedetails.begin();i!=filenamedetails.end();i++)
+				{
+					cout << i->first << " " << i->second << endl;
+				}
+			}
+			else if(command == "stop_sharing" && login==true){ //////////////////////////////////////12
+				ss >> temp;
+				string sha;
+				ss >> sha;
+				msg = stopsharing(temp,sha,peerportno);
+				if(msg == "False"){
+					cout << "Tracker not available" << endl;
+				}
+				else{
+					cout << "File will not be shared now" << endl;		
+				}
+			}
+			else if(command == "logout" && login == true){////////////////////////////////////////////13
+				login = false;
+				msg = logout(peerportno);
+				if(msg == "False"){
+					cout << "Tracker not available" << endl;
+				}
+				else{
+					cout << "Logged Out" << endl;		
+				}
 			}
 
 			else{

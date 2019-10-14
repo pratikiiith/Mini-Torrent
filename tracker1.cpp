@@ -10,10 +10,7 @@
 #include<pthread.h>
 #include <fcntl.h>
 #include<sys/stat.h>
-#include <arpa/inet.h>
-#include<unordered_map>
 #include<sstream>
-#include <fstream>
 #include<stdio.h>
 #include <stdlib.h>
 #include<string.h>
@@ -23,20 +20,11 @@
 #include<netinet/in.h>
 #include<netdb.h>
 #include<iostream>
-#include<stdio.h>
-#include <stdlib.h>
-#include<string.h>
-#include <unistd.h>
-#include<sys/types.h>
-#include<sys/socket.h>
-#include<netinet/in.h>
-#include<iostream>
 #include<pthread.h>
 #include <fcntl.h>
 #include<sys/stat.h>
 #include <arpa/inet.h>
 #include<unordered_map>
-#include<sstream>
 #include <fstream>
 #include <openssl/sha.h>
 #include<vector>
@@ -83,7 +71,7 @@ bool checkdetails(string key,string value,int portno,string ip)
 	if(logindetails.find(key) != logindetails.end()){
 		if(logindetails[key] == value){
 			online[portno]= true;
-			portandip[port] = ip;
+			portandip[portno] = ip;
 			return true;
 		}
 	}
@@ -409,21 +397,28 @@ void *handleall(void *fd)
 					} 
 				}	
 			}
-			
-			if(member){ /////////////////////////add details to file gid...portno
-				
-				
-				if(!f) filegroupdetails[temp].push_back(gid); /// sha->gid
 
-				if(filesharingdetails.find(temp) == filesharingdetails.end()) filesharingdetails[temp].push_back(size);
-				
-				filesharingdetails[temp].push_back(tempnum);  /// sha->[p1 ,p2 ,...]
-				order = "File uploaded";
+			if(member){ /////////////////////////add details to file gid...portno
+				bool f= false;
+				for(int i=0;i<filegroupdetails[temp].size();i++){
+					if(filegroupdetails[temp][i] == gid) f = true;
+				}				
+					if(!f) filegroupdetails[temp].push_back(gid); /// sha->gid
+
+					if(filesharingdetails.find(temp) == filesharingdetails.end()) filesharingdetails[temp].push_back(size);
+					bool found = false;
+					for(int i=0;i<filesharingdetails[temp].size();i++){
+						if(filesharingdetails[temp][i] == tempnum) found=true;
+					}
+					if(!found) filesharingdetails[temp].push_back(tempnum);  /// sha->[p1 ,p2 ,...]
+					order = "File uploaded";
+			}	
+			else{
+				order = "Client is not a member of Group";
 			}
-				else{
-					order = "Client is not a member of Group";
-				}
-				send(sock,order.c_str(),order.size(),0);
+			
+			send(sock,order.c_str(),order.size(),0);
+			
 			}
 		
 			else if(commandno == 10){/////////////////////////////////////////////list files
@@ -456,15 +451,15 @@ void *handleall(void *fd)
 				bool ingroup = false;
 				bool fileingroup = false;
 				// portno is in group or not
-				for(int i=0;i<groupmembers[gid].size();i++)
+				for(int i=0;i<groupmembers[temp].size();i++)
 				{
-					if(groupmembers[gid][i] == tempnum) ingroup = true;
+					if(groupmembers[temp][i] == tempnum) ingroup = true;
 				}
 				for(int i=0;i<filegroupdetails[filename].size();i++)
 				{
-					if(filegroupdetails[filename] == temp) fileingroup = true; 
+					if(filegroupdetails[filename][i] == temp) fileingroup = true; 
 				}
-
+				cout << ingroup << " " << fileingroup << endl;
 				if(ingroup && fileingroup){
 					int t = filesharingdetails[filename][0]; 	
 					order = order + to_string(t) + " "; /// file size appended
@@ -474,17 +469,45 @@ void *handleall(void *fd)
 						
 						ip = portandip[filesharingdetails[filename][i]]; /// ip of port
 						pp = to_string(filesharingdetails[filename][i]); // port 
-						order = order + " " + pp + " " + ip; // append port and ip
+						if(online[atoi(pp.c_str())]){
+							order = order + " " + pp + " " + ip; // append port and ip
+						}
+						
 					}
 				}	
 				else{
-					order = "File not Available or Client is not a member of group"
+					order = "File not Available or Client is not a member of group" ;
 				}
 				send(sock,order.c_str(),order.size(),0);		
 			}
+
+			else if(commandno == 12){ //filesharing  sha->portno
+				string gid;
+				string sha;
+				ss >> gid;
+				ss >> gid;
+				ss >> sha;
+				ss >> tempnum;
+				auto j = filegroupdetails[sha].begin();
+				for (int i = 0;i<filegroupdetails[sha].size(); ++i)
+				{
+					if(filegroupdetails[sha][i] == gid) filegroupdetails[sha].erase(j+i);
+				}
+				if(filegroupdetails[sha].size() == 0){
+					filegroupdetails.erase(sha);
+				}
+				order = "done";
+				send(sock,order.c_str(),order.size(),0);		
+			}
+			else if(commandno == 13){
+				ss >> temp;
+				ss >> tempnum;
+				online[tempnum] = false;
+				order = "done";
+				send(sock,order.c_str(),order.size(),0);
+			}
 		close(sock);
 }
-
 
 
 void *kernelthread(void *kernelpointer){
@@ -540,37 +563,6 @@ void *kernelthread(void *kernelpointer){
 
 }
 
-
-// void portaddedtotracker(string ip,int portno){
-// 	FILE *fp = fopen("tracker_info.txt" , "ab");
-// 	fseek(fp,0,SEEK_END);
-// 	string s = "";
-// 	s= s + ip + " " + to_string(portno);
-// 	fwrite(s.c_str(),1,s.size(),fp);
-// 	fwrite(&ch,1,sizeof(ch),fp);
-// 	fclose(fp);
-// }
-
-// void portdeletedfromtracker(string ip,int portno){
-// 	string addr = "":
-// 	addr = addr + ip + " " + to_string(portno);
-// 	string line;
-
-// 	ofstream temp;
-// 	temp.open("temp.txt");
-// 	ifstream fp;
-// 	fp.open("tracker_info.txt");
-// 	while(getline(fp,line)){
-// 		if(line != pno){
-// 			temp << line << endl;
-// 		}
-// 	}
-// 	temp.close();
-// 	fp.close();
-// 	remove("tracker_info.txt");
-// 	rename("temp.txt","tracker_info.txt");
-
-// }
 
 string readtrackerinfo(){
 
